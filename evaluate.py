@@ -119,5 +119,81 @@ def main():
         print(f"saved {png_path}")
 
 
+REAL_DIR = os.path.join("data", "real")
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
+MAX_WIDTH = 2000  # very large scans are shrunk to this width, for speed
+
+
+def _titled(img, text, height=600):
+    """Resize a grayscale image to a fixed height and add a white title bar on top."""
+    import cv2
+    h, w = img.shape[:2]
+    img = cv2.resize(img, (max(1, int(w * height / h)), height), interpolation=cv2.INTER_AREA)
+    bar = np.full((30, img.shape[1]), 255, np.uint8)
+    cv2.putText(bar, text, (8, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 0, 1, cv2.LINE_AA)
+    return np.vstack([bar, img])
+
+
+def run_real_images(folder=REAL_DIR):
+    """Run the pipeline on every image in data\\real and save before/after pictures.
+
+    For each image it saves outputs\\real\\NAME_compare.png (original | smart routing |
+    all steps forced) and outputs\\real\\NAME_restored.png, prints which steps ran, and
+    writes outputs\\real_results.csv.
+    """
+    import cv2
+    paths = sorted(os.path.join(root, f) for root, _, files in os.walk(folder)
+                   for f in files if os.path.splitext(f)[1].lower() in IMAGE_EXTENSIONS)
+    if not paths:
+        print(f"No images found in {folder}. Put .jpg or .png files there and run again.")
+        return
+    out_dir = os.path.join(OUT_DIR, "real")
+    os.makedirs(out_dir, exist_ok=True)
+    rows = []
+    for path in paths:
+        name = os.path.splitext(os.path.basename(path))[0]
+        data = np.fromfile(path, np.uint8)  # works even with unusual characters in the path
+        img = cv2.imdecode(data, cv2.IMREAD_COLOR) if data.size else None
+        if img is None:
+            print(f"{name}: could not read this file as an image, skipped")
+            continue
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        if gray.shape[1] > MAX_WIDTH:
+            scale = MAX_WIDTH / gray.shape[1]
+            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        try:
+            smart, report = restore(gray, force_all=False)
+            forced = restore(gray, force_all=True)[0]
+        except Exception as e:
+            print(f"{name}: the pipeline crashed: {e!r}")
+            rows.append({"image": name, "steps_applied": "CRASH", "contrast_before": "",
+                         "contrast_after": "", "analysis": repr(e)})
+            continue
+        panel = np.hstack([_titled(gray, "original"),
+                           _titled(smart, "smart routing: " + ", ".join(report["steps_applied"])[:60]),
+                           _titled(forced, "all steps forced")])
+        cv2.imwrite(os.path.join(out_dir, f"{name}_compare.png"), panel)
+        cv2.imwrite(os.path.join(out_dir, f"{name}_restored.png"), smart)
+        row = {"image": name,
+               "steps_applied": " + ".join(report["steps_applied"]) or "(none)",
+               "contrast_before": round(float(gray.std()), 1),
+               "contrast_after": round(float(smart.std()), 1),
+               "analysis": str(report["analysis"])}
+        rows.append(row)
+        print(f"\n{name}  ({gray.shape[1]}x{gray.shape[0]} pixels)")
+        print(f"  steps applied : {row['steps_applied']}")
+        print(f"  contrast (standard deviation of brightness): "
+              f"{row['contrast_before']} -> {row['contrast_after']}")
+        print(f"  analysis      : {row['analysis']}")
+    if rows:
+        save_csv(rows, os.path.join(OUT_DIR, "real_results.csv"))
+        print(f"\nsaved pictures to {out_dir} and the table to "
+              f"{os.path.join(OUT_DIR, 'real_results.csv')}")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--real" in sys.argv:
+        run_real_images()
+    else:
+        main()
