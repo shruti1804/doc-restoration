@@ -22,7 +22,8 @@ def analyze(gray: np.ndarray) -> dict:
     h, w = gray.shape
     small = gray if w <= 1000 else cv2.resize(gray, (1000, int(h * 1000 / w)),
                                               interpolation=cv2.INTER_AREA)
-    blur = float(cv2.Laplacian(small, cv2.CV_64F).var())   # low = blurry
+    smooth = cv2.GaussianBlur(small, (0, 0), 1.5)          # removes grain first
+    blur = float(cv2.Laplacian(smooth, cv2.CV_64F).var())   # low = blurry
     contrast = float(small.std())                           # low = faded
     bg = cv2.medianBlur(cv2.resize(small, None, fx=0.25, fy=0.25), 31)
     bg_unevenness = float(bg.std())
