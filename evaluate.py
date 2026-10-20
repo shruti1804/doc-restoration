@@ -191,9 +191,54 @@ def run_real_images(folder=REAL_DIR):
               f"{os.path.join(OUT_DIR, 'real_results.csv')}")
 
 
+STEP_CHAIN = [
+    ("1 deskew", steps.deskew),
+    ("2 + background correction", steps.correct_background),
+    ("3 + denoise", steps.denoise),
+    ("4 + level normalization", steps.normalize_levels),
+    ("5 + CLAHE", steps.enhance_contrast),
+]
+
+
+def run_step_by_step():
+    """Add the pipeline steps one at a time (same order as pipeline.py) and show
+    PSNR and SSIM after each one, averaged over the seeds. The step where SSIM drops
+    is the step that hurts."""
+    clean = make_clean_page()
+    rows = []
+    for severity in SEVERITIES:
+        labels = ["0 degraded (start)"] + [label for label, _ in STEP_CHAIN]
+        scores = {label: [] for label in labels}
+        for seed in SEEDS:
+            img = degrade(clean, seed, severity)
+            m = psnr_ssim(img, clean)
+            scores[labels[0]].append((m["PSNR_dB"], m["SSIM"]))
+            for label, fn in STEP_CHAIN:
+                img = fn(img)
+                m = psnr_ssim(img, clean)
+                scores[label].append((m["PSNR_dB"], m["SSIM"]))
+        print(f"\nSeverity: {severity}  (average of {len(SEEDS)} seeds)")
+        print(f"{'After step':28s} {'PSNR (dB)':>10s} {'SSIM':>8s} {'SSIM change':>12s}")
+        prev_ssim = None
+        for label in labels:
+            arr = np.array(scores[label])
+            psnr, ssim = float(arr[:, 0].mean()), float(arr[:, 1].mean())
+            change = "" if prev_ssim is None else f"{ssim - prev_ssim:+.4f}"
+            print(f"{label:28s} {psnr:10.2f} {ssim:8.4f} {change:>12s}")
+            rows.append({"severity": severity, "after_step": label, "psnr_db": round(psnr, 2),
+                         "ssim": round(ssim, 4), "ssim_change": change})
+            prev_ssim = ssim
+    os.makedirs(OUT_DIR, exist_ok=True)
+    path = os.path.join(OUT_DIR, "step_by_step.csv")
+    save_csv(rows, path)
+    print(f"\nsaved {path}")
+
+
 if __name__ == "__main__":
     import sys
     if "--real" in sys.argv:
         run_real_images()
+    elif "--steps" in sys.argv:
+        run_step_by_step()
     else:
         main()
