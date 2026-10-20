@@ -23,7 +23,7 @@ def restore(image: np.ndarray, binarize: bool = False, force_all: bool = False):
     run("deskew", steps.deskew)
     run("background_and_stain_flattening", steps.correct_background)
     if force_all or a["is_noisy"]:
-        run("denoise", steps.denoise)
+        run("denoise", steps.denoise, int(np.clip(a["noise_level"], 3, 12)))
     run("level_normalization", steps.normalize_levels)
     if force_all or a["is_faded"]:
         run("contrast_enhancement_CLAHE", steps.enhance_contrast)
