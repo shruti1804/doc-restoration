@@ -31,6 +31,11 @@ grayscale -> analysis -> deskew -> background and stain flattening
 | CLAHE | Contrast Limited Adaptive Histogram Equalization (clip limit 1.0) | If the page is faded |
 | Sharpen | Unsharp mask | If the page is blurry |
 | Binarization | Sauvola thresholding, black text on white page | Optional output |
+
+## Screenshots
+![Upload and before/after slider](report/screenshots/slider.png)
+![Detection scores and steps applied](report/screenshots/scores.png)
+![OCR before and after](report/screenshots/ocr.png)
  
 ## Setup (Windows PowerShell)
  
