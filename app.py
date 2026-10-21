@@ -9,11 +9,13 @@ from PIL import Image  # PIL = Python Imaging Library, used to hand images to th
 from restore import restore
 from restore.metrics import psnr_ssim
 
+SLIDER_ERROR = ""
 try:
     from streamlit_image_comparison import image_comparison
     HAS_SLIDER = True
-except ImportError:
+except Exception as e:  # any import problem, not only a missing package
     HAS_SLIDER = False
+    SLIDER_ERROR = str(e)
 
 MAX_WIDTH = 2000  # uploads wider than this are shrunk for speed
 
@@ -64,9 +66,15 @@ def setup_tesseract() -> bool:
 
 
 @st.cache_data(show_spinner="Reading text with Tesseract...")
-def run_ocr(gray_image):
+def run_ocr(gray_image, psm=6):
+    """OCR with light cleanup: 2x upscale for small text, median blur to remove speckle.
+    psm = Page Segmentation Mode (6 = one block of text, 4 = columns, 3 = automatic)."""
     import pytesseract
-    return pytesseract.image_to_string(gray_image)
+    g = gray_image
+    if g.shape[1] < 1500:
+        g = cv2.resize(g, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    g = cv2.medianBlur(g, 3)
+    return pytesseract.image_to_string(g, config=f"--oem 3 --psm {psm}")
 
 
 @st.cache_data(show_spinner="Restoring the document...")
@@ -142,6 +150,9 @@ steps = list(report["steps_applied"]) + (["binarize_Sauvola"] if binarize else [
 
 # ---------- before / after ----------
 st.subheader("Before / After (drag the slider)" if HAS_SLIDER else "Before / After")
+if not HAS_SLIDER:
+    st.caption("Slider not available, showing side-by-side view. "
+               "Fix: pip install streamlit-image-comparison  " + SLIDER_ERROR)
 show_comparison(img, out)
 
 # ---------- detection scores ----------
@@ -176,10 +187,17 @@ if st.checkbox("Show OCR (Optical Character Recognition) text before/after (need
                    "(or add C:\\Program Files\\Tesseract-OCR to your PATH). "
                    "Everything else in the app still works.")
     else:
+        o1, o2 = st.columns(2)
+        source = o1.selectbox("Image to read for 'After'",
+                              ["Enhanced grayscale", "Binarized (black text on white)"])
+        psm_label = o2.selectbox("Page layout mode",
+                                 ["6 - one block of text", "4 - columns", "3 - automatic"])
+        psm = int(psm_label.split(" ")[0])
+        after_img = gray_out if source.startswith("Enhanced") else bin_out
         try:
             t1, t2 = st.columns(2)
-            t1.text_area("Before", run_ocr(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)), height=200)
-            t2.text_area("After", run_ocr(out), height=200)
+            t1.text_area("Before", run_ocr(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), psm), height=200)
+            t2.text_area("After", run_ocr(after_img, psm), height=200)
         except Exception as e:
             st.error(f"Tesseract was found but failed to read the image: {e}")
 
