@@ -4,20 +4,27 @@ import numpy as np
 from skimage.filters import threshold_sauvola
 
 
-def deskew(gray: np.ndarray) -> np.ndarray:
-    """Straighten a slightly rotated page using the text pixels' minimum-area rectangle."""
-    inv = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-    coords = np.column_stack(np.where(inv > 0))
-    if len(coords) < 100:
+def deskew(gray: np.ndarray, max_deg: float = 5.0, step: float = 0.25,
+           min_deg: float = 0.5, min_gain: float = 0.03) -> np.ndarray:
+    """Straighten a tilted page. Tries small rotations and keeps the one that makes the
+    text rows line up best (projection profile). Speckle noise does not fool it, and
+    pages with no real tilt are returned unchanged."""
+    flat = correct_background(gray)
+    small = cv2.resize(flat, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA) if gray.shape[1] > 800 else flat
+    inv = (cv2.medianBlur(small, 3) < 150).astype(np.uint8) * 255
+    h, w = inv.shape
+    scores = {}
+    for a in np.arange(-max_deg, max_deg + 1e-9, step):
+        M = cv2.getRotationMatrix2D((w / 2, h / 2), float(a), 1.0)
+        p = cv2.warpAffine(inv, M, (w, h)).sum(axis=1).astype(np.float64)
+        scores[round(float(a), 2)] = float(np.sum(np.diff(p) ** 2))
+    best = max(scores, key=scores.get)
+    base = scores[0.0]
+    if base <= 0 or abs(best) < min_deg or scores[best] / base - 1 < min_gain:
         return gray
-    angle = cv2.minAreaRect(coords)[-1]
-    angle = -(90 + angle) if angle < -45 else -angle
-    if abs(angle) < 0.3 or abs(angle) > 15:
-        return gray
-    h, w = gray.shape
-    M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
-    return cv2.warpAffine(gray, M, (w, h), flags=cv2.INTER_CUBIC,
-                          borderMode=cv2.BORDER_REPLICATE)
+    H, W = gray.shape
+    M = cv2.getRotationMatrix2D((W / 2, H / 2), best, 1.0)
+    return cv2.warpAffine(gray, M, (W, H), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
 
 def correct_background(gray: np.ndarray, kernel: int = 9) -> np.ndarray:
@@ -53,7 +60,7 @@ def denoise(gray: np.ndarray, strength: int = 10) -> np.ndarray:
                                     templateWindowSize=7, searchWindowSize=21)
 
 
-def enhance_contrast(gray: np.ndarray, clip: float = 2.0) -> np.ndarray:
+def enhance_contrast(gray: np.ndarray, clip: float = 1.0) -> np.ndarray:
     """CLAHE (Contrast Limited Adaptive Histogram Equalization)."""
     return cv2.createCLAHE(clipLimit=clip, tileGridSize=(8, 8)).apply(gray)
 
