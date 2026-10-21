@@ -8,7 +8,7 @@ import csv
 import os
 
 import numpy as np
-
+from restore.analyze import analyze
 from degrade import make_clean_page, degrade
 from restore import steps
 from restore.metrics import psnr_ssim
@@ -194,7 +194,7 @@ def run_real_images(folder=REAL_DIR):
 STEP_CHAIN = [
     ("1 deskew", steps.deskew),
     ("2 + background correction", steps.correct_background),
-    ("3 + denoise", steps.denoise),
+    ("3 + denoise", lambda g: steps.denoise(g, int(np.clip(analyze(g)["noise_level"] * 1.6, 3, 20)))),
     ("4 + level normalization", steps.normalize_levels),
     ("5 + CLAHE", steps.enhance_contrast),
 ]
